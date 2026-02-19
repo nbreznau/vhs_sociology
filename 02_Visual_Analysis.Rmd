@@ -55,7 +55,7 @@ fig1_plot <- bind_rows(
     mutate(discipline = rownames(.), measure = "Program rates"),
   fig1_coloc_pct %>%
     as.data.frame() %>%
-    mutate(discipline = rownames(.), measure = "Collocation of occurrences")
+    mutate(discipline = rownames(.), measure = "Collocation of\noccurrences")
 ) %>%
   pivot_longer(
     cols = c("Pre_1970","1970_1989","1990_2009","2010_2024"),
@@ -74,7 +74,7 @@ fig1_plot <- bind_rows(
 
 ```{r}
 
-agg_png("results/Fig1.png", res = 144, height = 750, width = 1000)
+agg_png("results/Fig1.png", res = 144, height = 550, width = 1000)
 
 ggplot(fig1_plot,
        aes(x = period, y = value,
@@ -86,15 +86,22 @@ ggplot(fig1_plot,
   scale_color_viridis_d(option = "viridis", end = 0.9) +
   scale_linetype_manual(values = c(
     "Program rates" = "solid",
-    "Collocation of occurrences" = "dotted"
+    "Collocation of\noccurrences" = "dotted"
   )) +
+  scale_y_continuous(
+    breaks = seq(0, 100, by = 5) 
+  ) +
   labs(
     x = NULL,
     y = "Percent",
     color = NULL,
     linetype = NULL
   ) +
-  theme_classic()
+  theme_classic() +
+  theme(
+  panel.grid.major.y = element_line(color = "grey85"),
+  panel.grid.major.x = element_blank()
+)
 
 dev.off()
 
@@ -104,6 +111,8 @@ include_graphics("results/Fig1.png")
 ```
 
 ## Fig 2. Participation
+
+### Build
 
 ```{r}
 
@@ -126,7 +135,7 @@ fig2_plot <- df_part %>%
 
 ```{r}
 
-agg_png("results/Fig2.png", res = 144, height = 750, width = 1000)
+agg_png("results/Fig2.png", res = 144, height = 600, width = 1000)
 
 ggplot(fig2_plot,
        aes(x = period, y = value,
@@ -141,7 +150,11 @@ ggplot(fig2_plot,
     color = NULL,
     linetype = NULL
   ) +
-  theme_classic()
+  theme_classic() +
+  theme(
+  panel.grid.major.y = element_line(color = "grey85"),
+  panel.grid.major.x = element_blank()
+)
 
 dev.off()
 
@@ -189,7 +202,7 @@ fig3_plot <- fig3_pt %>%
 
 ```{r}
 
-agg_png("results/Fig3.png", res = 144, height = 750, width = 1000)
+agg_png("results/Fig3.png", res = 144, height = 600, width = 1000)
 
 ggplot(fig3_plot,
        aes(x = period, y = value,
@@ -206,7 +219,11 @@ ggplot(fig3_plot,
     linetype = NULL,
     title = "Embededness of Disciplines in Adult Learning"
   ) +
-  theme_classic()
+  theme_classic() +
+  theme(
+  panel.grid.major.y = element_line(color = "grey85"),
+  panel.grid.major.x = element_blank()
+)
 
 dev.off()
 
