@@ -2,117 +2,124 @@
 title: "Visualization"
 ---
 
-Data imported from Kortes (2026, working paper) "Ergebnis_Eingehen_Sowi_VHS.xlsx" in 01_Data_Import.R
-
-NLP and text minning from the VHS-Archiv at the German Institute for Adult Education (DIE) produced the results for df_anthro, df_soc and df_econ
-
-Simple tabulation of rates from the VHS-Statistik at the DIE produced results for df_part
+Data imported from Kortes (2026, working paper). NLP and text mining within-discipline statistics from "Repository.xlsx", overall counts and tabular legacy statistics from "Ergebnis_Eingehen_Sowi_VHS.xlsx" via `01_Data_Import.R`.
 
 ## Setup
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
+
 packages <- c("tidyverse",
               "readxl",
               "ggplot2",
               "viridis",
               "ragg",
-              "knitr")
+              "knitr",
+              "ggpubr",
+              "zoo")
 
 pacman::p_load(packages, character.only = T)
 
-df_anthro <- readRDS("files/df_anthro.RDS")
-df_soc <- readRDS("files/df_soc.RDS")
-df_econ <- readRDS("files/df_econ.RDS")
+# --- Data Import ---
+df_between <- readRDS("files/df_between.RDS") %>%
+  subset(Year > 1956) %>%
+  mutate(Year = as.numeric(Year)) %>%
+  subset(!is.na(Year))
+
+df_between <- df_between %>%
+  arrange(discipline, measure, Year) %>%
+  group_by(discipline, measure) %>%
+  mutate(value_roll = zoo::rollmean(value, k = 4, fill = NA, align = "center")) %>%
+  ungroup()
+
+df_fig3 <- readRDS("files/df_fig3.RDS")
 df_part <- readRDS("files/df_part.RDS")
+df_enroll <- readRDS("files/df_enroll.RDS")
+
+# --- Universal Color Palette ---
+# Extract the exact 3 colors from Viridis (Purple, Teal, Greenish-Yellow)
+base_pal <- viridis::viridis(3, end = 0.9)
+
+# Base R function to lighten a color by mixing it with white
+lighten_color <- function(color, amount = 0.45) {
+  rgb_val <- col2rgb(color)
+  rgb_val <- rgb_val + (255 - rgb_val) * amount
+  rgb(rgb_val[1], rgb_val[2], rgb_val[3], maxColorValue = 255)
+}
+
+# Assign the colors
+c_anthro <- base_pal[1]
+c_soc    <- base_pal[2]
+c_econ   <- base_pal[3]
+c_cult   <- lighten_color(c_anthro, 0.45) # 45% lighter than Anthropology
+
+# Create a named vector covering all naming variations in your dataframes
+disc_colors <- c(
+  "Anthropology" = c_anthro,
+  "Anth"         = c_anthro,
+  "Cultural"     = c_cult,
+  "Sociology"    = c_soc,
+  "Soc"          = c_soc,
+  "Economics"    = c_econ,
+  "Econ"         = c_econ
+)
+
 
 ```
 
-## Fig 1. Time Trends
+## Total Discipline Trends
 
-### Build DF
-
-```{r}
-
-fig1 <- as.data.frame(matrix(nrow = 3, ncol = 4))
-
-rownames(fig1) <- c("Anth", "Soc", "Econ")
-colnames(fig1) <- c("Pre_1970", "1970_1989", "1990_2009", "2010_2024")
-
-fig1_num_prog_pct <- fig1
-fig1_coloc_pct <- fig1
-
-fig1_num_prog_pct[1,] <- round(100 * as.numeric(df_anthro[3, c(2,4,6,8)]), 1)
-fig1_num_prog_pct[2,] <- round(100 * as.numeric(df_soc[3, c(2,4,6,8)]), 1)
-fig1_num_prog_pct[3,] <- round(100 * as.numeric(df_econ[3, c(2,4,6,8)]), 1)
-
-fig1_coloc_pct[1,] <- round(100 * as.numeric(df_anthro[7, c(2,4,6,8)]), 1)
-fig1_coloc_pct[2,] <- round(100 * as.numeric(df_soc[7, c(2,4,6,8)]), 1)
-fig1_coloc_pct[3,] <- round(100 * as.numeric(df_econ[7, c(2,4,6,8)]), 1)
-
-fig1_plot <- bind_rows(
-  fig1_num_prog_pct %>%
-    as.data.frame() %>%
-    mutate(discipline = rownames(.), measure = "Program rates"),
-  fig1_coloc_pct %>%
-    as.data.frame() %>%
-    mutate(discipline = rownames(.), measure = "Collocation of\noccurrences")
-) %>%
-  pivot_longer(
-    cols = c("Pre_1970","1970_1989","1990_2009","2010_2024"),
-    names_to = "period",
-    values_to = "value"
-  ) %>%
-  mutate(
-    period = factor(period,
-      levels = c("Pre_1970","1970_1989","1990_2009","2010_2024")),
-    discipline = factor(discipline, levels = c("Anth","Soc","Econ"))
-  )
-
-```
-
-### Plot
+### Fig 1. Time Trends
 
 ```{r}
 
-agg_png("results/Fig1.png", res = 144, height = 550, width = 1000)
+agg_png("results/Fig1.png", res = 144, height = 1000, width = 1100)
 
-ggplot(fig1_plot,
-       aes(x = period, y = value,
-           color = discipline,
-           linetype = measure,
-           group = interaction(discipline, measure))) +
-  geom_line(linewidth = 1) +
-  geom_point(size = 2) +
-  scale_color_viridis_d(option = "viridis", end = 0.9) +
-  scale_linetype_manual(values = c(
-    "Program rates" = "solid",
-    "Collocation of\noccurrences" = "dotted"
-  )) +
-  scale_y_continuous(
-    breaks = seq(0, 100, by = 5) 
-  ) +
-  labs(
-    x = NULL,
-    y = "Percent",
-    color = NULL,
-    linetype = NULL
-  ) +
+Fig1a <- ggplot(df_between %>% filter(measure == "Program results"),
+                aes(x = Year, color = discipline,
+                    group = interaction(discipline, measure))) +
+  geom_line(aes(y = value), linewidth = 0.5, linetype = "dotted", alpha = 0.4) +
+  geom_line(aes(y = value_roll), linewidth = 1.1, linetype = "solid") +
+  scale_color_manual(values = disc_colors) +
+  scale_x_continuous(breaks = scales::breaks_width(5)) +
+  labs(x = NULL, y = "Program Catalog Rate", color = NULL) +
   theme_classic() +
   theme(
-  panel.grid.major.y = element_line(color = "grey85"),
-  panel.grid.major.x = element_blank()
+    panel.grid.major.y = element_line(),
+    panel.grid.minor.y = element_line()
+  )
+
+Fig1b <- ggplot(df_between %>% filter(measure == "Page results"),
+                aes(x = Year, color = discipline,
+                    group = interaction(discipline, measure))) +
+  geom_line(aes(y = value), linewidth = 0.5, linetype = "dotted", alpha = 0.4) +
+  geom_line(aes(y = value_roll), linewidth = 1.1, linetype = "solid") +
+  scale_color_manual(values = disc_colors) +
+  scale_x_continuous(breaks = scales::breaks_width(5)) +
+  labs(x = NULL, y = "Page Rate", color = NULL) +
+  theme_classic() +
+  theme(
+    panel.grid.major.y = element_line(),
+    panel.grid.minor.y = element_line()
+  )
+
+ggarrange(
+  Fig1a, Fig1b,
+  ncol = 1,
+  common.legend = TRUE,
+  legend = "bottom"
 )
 
 dev.off()
-
 include_graphics("results/Fig1.png")
-
 
 ```
 
-## Fig 2. Participation
 
-### Build
+
+
+### Fig 2. Participation
+
+#### Build
 
 ```{r}
 
@@ -129,9 +136,10 @@ fig2_plot <- df_part %>%
     discipline = factor(discipline, levels = c("Cultural","Soc","Econ"))
   )
 
+
 ```
 
-### Plot
+#### Plot
 
 ```{r}
 
@@ -143,7 +151,37 @@ ggplot(fig2_plot,
            group = discipline)) +
   geom_line(linewidth = 1) +
   geom_point(size = 2) +
-  scale_color_viridis_d(option = "viridis", end = 0.9) +
+  scale_color_manual(values = disc_colors) +
+  labs(x = NULL, y = "Percent", color = NULL, linetype = NULL) +
+  theme_classic() +
+  theme(
+    panel.grid.major.y = element_line(color = "grey85"),
+    panel.grid.major.x = element_blank()
+  )
+
+dev.off()
+include_graphics("results/Fig2.png")
+
+```
+## Within Discipline Trends
+
+### Fig 3. Within Time Trends
+
+
+
+
+```{r}
+
+agg_png("results/Fig3.png", res = 144, height = 550, width = 1000)
+
+ggplot(df_fig3,
+       aes(x = period, y = value,
+           color = discipline,
+           group = interaction(discipline, measure))) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = disc_colors) +
+  scale_y_continuous(breaks = seq(0, 100, by = 5)) +
   labs(
     x = NULL,
     y = "Percent",
@@ -152,82 +190,67 @@ ggplot(fig2_plot,
   ) +
   theme_classic() +
   theme(
-  panel.grid.major.y = element_line(color = "grey85"),
-  panel.grid.major.x = element_blank()
-)
+    panel.grid.major.y = element_line(color = "grey85"),
+    panel.grid.major.x = element_blank()
+  )
 
 dev.off()
 
-include_graphics("results/Fig2.png")
+include_graphics("results/Fig3.png")
+
 
 ```
 
+### Fig 4. Absolute Means
 
-## Fig 3. Embeddedness
-
-Defined as the average percentage for the period for programs, pages, total occurrences, sum of dependencies and sum of collocations plus 4 times the attendance (2 for each type.
-
-### Build DF
+#### Build
 
 ```{r}
 
-fig3_p <- fig1
-
-fig3_p[1,] <- c(NA, 100*mean(c(df_anthro[3:7,4], rep(mean(df_part[1:2,1]/100), 4))), 100*mean(c(df_anthro[3:7,6], rep(mean(df_part[3:4,1]/100), 4))), 100*mean(c(df_anthro[3:7,8], rep(df_part[5,1]/100, 4))))
-
-fig3_p[2,] <- c(NA, 100*mean(c(df_soc[3:7,4], rep(mean(df_part[1:2,2]/100), 4))), 100*mean(c(df_soc[3:7,6], rep(mean(df_part[3:4,2]/100), 4))), 100*mean(c(df_soc[3:7,8], rep(df_part[5,2]/100, 4))))
-
-fig3_p[3,] <- c(NA, 100*mean(c(df_econ[3:7,4], rep(mean(df_part[1:2,3]/100), 4))), 100*mean(c(df_econ[3:7,6], rep(mean(df_part[3:4,3]/100), 4))), 100*mean(c(df_econ[3:7,8], rep(df_part[5,3]/100, 4))))
-
-fig3_pt <- (fig3_p - 9)*90/max(fig3_p-9, na.rm = T)
-
-fig3_pt <- select(fig3_pt, -Pre_1970)
-
-fig3_plot <- fig3_pt %>%
+fig4_plot <- df_enroll %>%
   as.data.frame() %>%
-  mutate(discipline = rownames(.)) %>%
+  mutate(period = rownames(.)) %>%             
   pivot_longer(
-    cols = c("1970_1989","1990_2009","2010_2024"),
-    names_to = "period",
+    cols = c("Cultural","Soc","Econ"),              
+    names_to = "discipline",
     values_to = "value"
   ) %>%
   mutate(
-    period = factor(period, levels = c("1970_1989","1990_2009","2010_2024")),
-    discipline = factor(discipline, levels = c("Anth","Soc","Econ"))
+    period = factor(period, levels = c("1977-1979","1980-1989","1990-1999","2000-2009","2010-2017")),
+    discipline = factor(discipline, levels = c("Cultural","Soc","Econ"))
   )
+
 
 ```
 
-### Plot
+#### Plot
 
 ```{r}
 
-agg_png("results/Fig3.png", res = 144, height = 600, width = 1000)
+agg_png("results/Fig4.png", res = 144, height = 600, width = 1000)
 
-ggplot(fig3_plot,
+ggplot(fig4_plot,
        aes(x = period, y = value,
            color = discipline,
            group = discipline)) +
   geom_line(linewidth = 1) +
   geom_point(size = 2) +
-  scale_color_viridis_d(option = "viridis", end = 0.9) +
+  scale_color_manual(values = disc_colors) +
   labs(
     x = NULL,
-    y = "Score",
-    caption = "Embededness score is a realtivized average of the period\npercentage for the discipline hits for programs, pages,\ntotal occurrences, sum of dependencies and sum\nof collocations, plus the attendance weighted by a factor of 4.",
+    y = "Mean Courses per Year",
     color = NULL,
-    linetype = NULL,
-    title = "Embededness of Disciplines in Adult Learning"
+    linetype = NULL
   ) +
   theme_classic() +
   theme(
-  panel.grid.major.y = element_line(color = "grey85"),
-  panel.grid.major.x = element_blank()
-)
+    panel.grid.major.y = element_line(color = "grey85"),
+    panel.grid.major.x = element_blank()
+  )
 
 dev.off()
 
-include_graphics("results/Fig3.png")
+include_graphics("results/Fig4.png")
 
 ```
 
