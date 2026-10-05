@@ -1,37 +1,67 @@
 library("tidyverse")
-library("readxl")
 
-# From Korte 2026 Zenodo
-data_file <- "files/Repository.xlsx"
+# Source data: Korte (2026), Zenodo, doi:10.5281/zenodo.19063510.
+# Run 00_Get_Data.R first; it downloads the CSV files into files/zenodo/.
+zenodo_dir <- "files/zenodo"
 
-# 1. Overall changes per year (Fig 1)
-
-#dynamically extract  time series rows
-extract_fig1_data <- function(sheet_name, disc_name) {
-  df <- read_xlsx(data_file, sheet = sheet_name)
-  
-  # Standardize the first column name to 'Variable' to allow safe pivoting
-  colnames(df)[1] <- "Variable"
-  
-  df %>%
-    filter(Variable %in% c("Programmes relative", "Pages relative")) %>%
-    pivot_longer(cols = -Variable, names_to = "Year", values_to = "value") %>%
-    mutate(
-      Year = suppressWarnings(as.numeric(Year)),
-      # FORCE VALUE TO BE NUMERIC HERE:
-      value = suppressWarnings(as.numeric(value)),
-      discipline = disc_name,
-      measure = if_else(Variable == "Programmes relative", "Program results", "Page results")
-    ) %>%
-    filter(!is.na(Year) & Year > 1956) %>%
-    select(Year, discipline, measure, value)
+zenodo_file <- function(name) {
+  path <- file.path(zenodo_dir, name)
+  if (!file.exists(path)) stop(path, " not found. Run 00_Get_Data.R first.", call. = FALSE)
+  path
 }
 
-df_between <- bind_rows(
-  extract_fig1_data("Ethnology", "Anthropology"),
-  extract_fig1_data("Sociology", "Sociology"),
-  extract_fig1_data("Economics", "Economics")
-) %>%
+# Zenodo CSVs are semicolon-separated, UTF-8 with BOM, decimal comma
+zenodo_locale <- locale(decimal_mark = ",", encoding = "UTF-8")
+
+# Text-mining tables: one row per measure, one column per year (1946-2024)
+read_mining <- function(name) {
+  read_delim(zenodo_file(name), delim = ";", locale = zenodo_locale,
+             col_types = cols(.default = col_character()), name_repair = "minimal") %>%
+    rename(Variable = 1)
+}
+
+# VHS statistics tables: one row per year, one column per subject field
+read_stats <- function(name) {
+  read_delim(zenodo_file(name), delim = ";", locale = zenodo_locale,
+             col_types = cols(.default = col_double()))
+}
+
+assign_period <- function(Year) {
+  case_when(
+    Year <= 1979 ~ "1977-1979",
+    Year <= 1989 ~ "1980-1989",
+    Year <= 1999 ~ "1990-1999",
+    Year <= 2009 ~ "2000-2009",
+    Year <= 2017 ~ "2010-2017"
+  )
+}
+
+mining <- list(
+  Anthropology = read_mining("Ethnology.csv"),
+  Sociology    = read_mining("Sociology.csv"),
+  Economics    = read_mining("Economics.csv")
+)
+
+# Long format: Year, discipline, Variable, value (numeric rows only)
+mining_long <- imap_dfr(mining, function(df, disc) {
+  df %>%
+    filter(Variable %in% c("Programmes", "Programmes relative", "Pages", "Pages relative")) %>%
+    pivot_longer(-Variable, names_to = "Year", values_to = "value") %>%
+    mutate(
+      Year = as.numeric(Year),
+      value = parse_double(value, locale = zenodo_locale),
+      discipline = disc
+    )
+})
+
+# -------------------------------------------------------------------------
+# 1. Overall changes per year (Fig 1)
+# -------------------------------------------------------------------------
+
+df_between <- mining_long %>%
+  filter(Variable %in% c("Programmes relative", "Pages relative"), Year > 1956) %>%
+  mutate(measure = if_else(Variable == "Programmes relative", "Program results", "Page results")) %>%
+  select(Year, discipline, measure, value) %>%
   arrange(Year, discipline, measure)
 
 write_rds(df_between, "files/df_between.RDS")
@@ -40,154 +70,88 @@ write_rds(df_between, "files/df_between.RDS")
 # 2. Within-discipline statistics (Fig 3) - Calculated from raw Programmes
 # -------------------------------------------------------------------------
 
-# Helper function to dynamically calculate period percentages
-extract_fig3_data <- function(sheet_name, disc_name) {
-  df <- read_xlsx(data_file, sheet = sheet_name)
-  colnames(df)[1] <- "Variable"
-  
-  df %>%
-    # Isolate the raw Programmes counts
-    filter(Variable == "Programmes") %>%
-    pivot_longer(cols = -Variable, names_to = "Year", values_to = "count") %>%
-    mutate(
-      Year = suppressWarnings(as.numeric(Year)),
-      count = suppressWarnings(as.numeric(count))
-    ) %>%
-    filter(!is.na(Year) & !is.na(count)) %>%
-    # Assign years to their respective periods
-    mutate(
-      period = case_when(
-        Year < 1970 ~ "Pre_1970",
-        Year >= 1970 & Year <= 1989 ~ "1970_1989",
-        Year >= 1990 & Year <= 2009 ~ "1990_2009",
-        Year >= 2010 ~ "2010_2024"
-      )
-    ) %>%
-    # 1. Add the total score of Programme for each period
-    group_by(period) %>%
-    summarise(period_sum = sum(count, na.rm = TRUE)) %>%
-    ungroup() %>%
-    # 2. Divide by the total for the discipline and multiply by 100
-    mutate(
-      total_sum = sum(period_sum, na.rm = TRUE),
-      value = (period_sum / total_sum) * 100,
-      discipline = disc_name,
-      measure = "Program rates"
-    ) %>%
-    select(period, value, discipline, measure)
-}
-
-# Bind the calculated data for all three disciplines
-df_fig3 <- bind_rows(
-  extract_fig3_data("Ethnology", "Anth"),
-  extract_fig3_data("Sociology", "Soc"),
-  extract_fig3_data("Economics", "Econ")
-) %>%
+# Share of each discipline's brochure hits (all years, 1946-2024) that falls
+# in each period
+df_fig3 <- mining_long %>%
+  filter(Variable == "Programmes", !is.na(value)) %>%
+  mutate(
+    period = case_when(
+      Year < 1970 ~ "Pre_1970",
+      Year <= 1989 ~ "1970_1989",
+      Year <= 2009 ~ "1990_2009",
+      TRUE ~ "2010_2024"
+    ),
+    discipline = recode(discipline, Anthropology = "Anth", Sociology = "Soc", Economics = "Econ")
+  ) %>%
+  group_by(discipline, period) %>%
+  summarise(period_sum = sum(value), .groups = "drop_last") %>%
+  mutate(
+    value = period_sum / sum(period_sum) * 100,
+    measure = "Program rates"
+  ) %>%
+  ungroup() %>%
+  select(period, value, discipline, measure) %>%
   # Lock in the factor levels so the x-axis plots in chronological order
   mutate(
     period = factor(period, levels = c("Pre_1970", "1970_1989", "1990_2009", "2010_2024")),
     discipline = factor(discipline, levels = c("Anth", "Soc", "Econ"))
-  )
+  ) %>%
+  arrange(discipline, period)
 
 write_rds(df_fig3, "files/df_fig3.RDS")
 
-
 # -------------------------------------------------------------------------
-# 3. Participation (Fig 2) - Using ENROLLMENTS Data (3rd occurrence)
+# 3. Participation (Fig 2) - Enrollments, 1977-2017
 # -------------------------------------------------------------------------
 
-df_enroll_raw <- read_xlsx(data_file, sheet = "VHS Statistics 1962-2017", skip = 1, .name_repair = "unique")
-cols <- colnames(df_enroll_raw)
+# Subject fields are only reported from 1977; field categories change in 2018
+enroll <- read_stats("Enrollments_1962-2017.csv") %>%
+  filter(Year >= 1977, Year <= 2017) %>%
+  mutate(period = assign_period(Year))
 
-col_total_enr <- cols[grep("All courses", cols)][3]
-col_econ_enr  <- cols[grep("Economy", cols)][3]
-col_soc_enr   <- cols[grep("Sociology", cols)][3]
-col_cult_enr  <- cols[grep("Country studies/Geography", cols)][3]
-
-df_part <- df_enroll_raw %>%
-  select(
-    Year = 1, 
-    Total_Enrollments = all_of(col_total_enr), 
-    Econ_Enr = all_of(col_econ_enr), 
-    Soc_Enr = all_of(col_soc_enr), 
-    Cult_Enr = all_of(col_cult_enr)
-  ) %>%
-  mutate(
-    Year = suppressWarnings(as.numeric(Year)),
-    Total_Enrollments = suppressWarnings(as.numeric(Total_Enrollments)),
-    Econ_Enr = suppressWarnings(as.numeric(Econ_Enr)),
-    Soc_Enr = suppressWarnings(as.numeric(Soc_Enr)),
-    Cult_Enr = suppressWarnings(as.numeric(Cult_Enr))
-  ) %>%
-  filter(!is.na(Year) & Year >= 1977 & Year <= 2017) %>%
-  mutate(
-    period = case_when(
-      Year <= 1979 ~ "1977-1979",
-      Year <= 1989 ~ "1980-1989",
-      Year <= 1999 ~ "1990-1999",
-      Year <= 2009 ~ "2000-2009",
-      Year <= 2017 ~ "2010-2017"
-    )
-  ) %>%
+# Percent of all VHS enrollments
+df_part <- enroll %>%
   group_by(period) %>%
   summarise(
-    Soc = mean(Soc_Enr / Total_Enrollments * 100, na.rm = TRUE),
-    Econ = mean(Econ_Enr / Total_Enrollments * 100, na.rm = TRUE),
-    Cultural = mean(Cult_Enr / Total_Enrollments * 100, na.rm = TRUE)
+    Cultural = mean(`Country studies/Geography` / `All courses` * 100),
+    Soc = mean(Sociology / `All courses` * 100),
+    Econ = mean(Economy / `All courses` * 100)
   ) %>%
   as.data.frame() %>%
   column_to_rownames("period")
 
-df_part <- select(df_part, Cultural, Soc, Econ)
 write_rds(df_part, "files/df_part.RDS")
 
-
-# -------------------------------------------------------------------------
-# 4. Absolute Means (Fig 4) - Using COURSES Data (1st occurrence)
-# -------------------------------------------------------------------------
-
-col_total_crs <- cols[grep("All courses", cols)][1]
-col_econ_crs  <- cols[grep("Economy", cols)][1]
-col_soc_crs   <- cols[grep("Sociology", cols)][1]
-col_cult_crs  <- cols[grep("Country studies/Geography", cols)][1]
-
-df_enroll <- df_enroll_raw %>%
-  select(
-    Year = 1,
-    Total_Courses = all_of(col_total_crs),
-    Economics = all_of(col_econ_crs), 
-    Sociology = all_of(col_soc_crs),
-    `Cultural studies` = all_of(col_cult_crs)
-  ) %>%
-  mutate(
-    # columns to numeric
-    Year = suppressWarnings(as.numeric(Year)),
-    Total_Courses = suppressWarnings(as.numeric(Total_Courses)),
-    Economics = suppressWarnings(as.numeric(Economics)),
-    Sociology = suppressWarnings(as.numeric(Sociology)),
-    `Cultural studies` = suppressWarnings(as.numeric(`Cultural studies`))
-  ) %>%
-  filter(!is.na(Year) & Year >= 1977 & Year <= 2017) %>%
-  mutate(
-    period = case_when(
-      Year <= 1979 ~ "1977-1979",
-      Year <= 1989 ~ "1980-1989",
-      Year <= 1999 ~ "1990-1999",
-      Year <= 2009 ~ "2000-2009",
-      Year <= 2017 ~ "2010-2017"
-    )
-  ) %>%
+# Percent of enrollments in the Society/Politics/Environment program area.
+# These are the values the manuscript text currently quotes for Figure 2
+# (about 5% for sociology in 1977-1989).
+df_part_area <- enroll %>%
   group_by(period) %>%
   summarise(
-    # Calculate the mean number of courses per year for each period
-    Soc = mean(Sociology, na.rm = TRUE),
-    Econ = mean(Economics, na.rm = TRUE),
-    Cultural = mean(`Cultural studies`, na.rm = TRUE)
+    Cultural = mean(`Country studies/Geography` / `Society/Politics/Environment` * 100),
+    Soc = mean(Sociology / `Society/Politics/Environment` * 100),
+    Econ = mean(Economy / `Society/Politics/Environment` * 100)
   ) %>%
   as.data.frame() %>%
   column_to_rownames("period")
 
-# Periods to match Figure 2 
-df_enroll <- select(df_enroll, Cultural, Soc, Econ)
+write_rds(df_part_area, "files/df_part_area.RDS")
+
+# -------------------------------------------------------------------------
+# 4. Absolute Means (Fig 4) - Courses, 1977-2017
+# -------------------------------------------------------------------------
+
+df_enroll <- read_stats("Courses_1962-2017.csv") %>%
+  filter(Year >= 1977, Year <= 2017) %>%
+  mutate(period = assign_period(Year)) %>%
+  group_by(period) %>%
+  summarise(
+    # Mean number of courses per year in each period
+    Cultural = mean(`Country studies/Geography`),
+    Soc = mean(Sociology),
+    Econ = mean(Economy)
+  ) %>%
+  as.data.frame() %>%
+  column_to_rownames("period")
 
 write_rds(df_enroll, "files/df_enroll.RDS")

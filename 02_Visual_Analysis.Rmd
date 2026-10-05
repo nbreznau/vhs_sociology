@@ -2,22 +2,18 @@
 title: "Visualization"
 ---
 
-Data imported from Kortes (2026, working paper). NLP and text mining within-discipline statistics from "Repository.xlsx", overall counts and tabular legacy statistics from "Ergebnis_Eingehen_Sowi_VHS.xlsx" via `01_Data_Import.R`.
+Figures for Breznau and Korte, "The waning role of sociology in adult learning?". All inputs are prepared by `01_Data_Import.R` from Korte (2026, Zenodo, doi:10.5281/zenodo.19063510): text-mining rates from `Ethnology.csv`, `Sociology.csv` and `Economics.csv`, and course and enrollment counts from `Courses_1962-2017.csv` and `Enrollments_1962-2017.csv`.
 
 ## Setup
 
 ```{r, message=FALSE, warning=FALSE}
 
-packages <- c("tidyverse",
-              "readxl",
-              "ggplot2",
-              "viridis",
-              "ragg",
-              "knitr",
-              "ggpubr",
-              "zoo")
-
-pacman::p_load(packages, character.only = T)
+library("tidyverse")
+library("viridis")
+library("ragg")
+library("knitr")
+library("ggpubr")
+library("zoo")
 
 # --- Data Import ---
 df_between <- readRDS("files/df_between.RDS") %>%
@@ -163,6 +159,7 @@ dev.off()
 include_graphics("results/Fig2.png")
 
 ```
+
 ## Within Discipline Trends
 
 ### Fig 3. Within Time Trends
@@ -255,9 +252,9 @@ include_graphics("results/Fig4.png")
 ```
 
 
-## References
+## Session info
 
 ```{r}
-
+sessionInfo()
 ```
 

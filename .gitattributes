@@ -1,0 +1,6 @@
+# Normalize line endings so Windows and other checkouts don't show phantom changes
+* text=auto
+*.xlsx binary
+*.RDS binary
+*.png binary
+*.docx binary
