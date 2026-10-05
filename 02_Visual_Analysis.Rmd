@@ -2,7 +2,7 @@
 title: "Visualization"
 ---
 
-Data imported from Kortes (2026, working paper). NLP and text mining within-discipline statistics from "Repository.xlsx", overall counts and tabular legacy statistics from "Ergebnis_Eingehen_Sowi_VHS.xlsx" via `01_Data_Import.R`.
+Figures for Breznau and Korte, "The waning role of sociology in adult learning?". All inputs are prepared by `01_Data_Import.R` from Korte (2026, Zenodo, doi:10.5281/zenodo.19063510): text-mining rates from the Ethnology, Sociology and Economics sheets, and course and enrollment counts from the "VHS Statistics 1962-2017" sheet.
 
 ## Setup
 
@@ -163,6 +163,7 @@ dev.off()
 include_graphics("results/Fig2.png")
 
 ```
+
 ## Within Discipline Trends
 
 ### Fig 3. Within Time Trends
@@ -255,9 +256,9 @@ include_graphics("results/Fig4.png")
 ```
 
 
-## References
+## Session info
 
 ```{r}
-
+sessionInfo()
 ```
 

@@ -2,3 +2,9 @@
 .Rhistory
 .RData
 .Ruserdata
+
+# Downloaded by 00_Get_Data.R; the source of truth is Zenodo
+files/zenodo/
+
+# Rendered notebook
+02_Visual_Analysis.html
