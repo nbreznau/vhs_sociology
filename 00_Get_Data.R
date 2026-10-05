@@ -1,12 +1,12 @@
 # Download the source data from Zenodo (Korte 2026, "VHS Mining Ethnology,
-# Sociology, and Economics") and verify it against Zenodo's checksums.
+# Sociology, and Economics") and verify every file against Zenodo's MD5
+# checksums. Files land in files/zenodo/ (git-ignored).
 #
-# Files land in files/zenodo/ (git-ignored). 01_Data_Import.R uses the
-# downloaded workbook when present and otherwise falls back to the frozen
-# snapshot files/Repository.xlsx.
-#
-# A published record needs no login. For a draft or restricted record, set an
-# access token first: Sys.setenv(ZENODO_TOKEN = "<your token>")
+# While the record is an unpublished draft, it can only be read with a
+# share-link token. Copy the part after "token=" from the share link and set it
+# before running this script (do not commit it):
+#   Sys.setenv(ZENODO_TOKEN = "<token>")
+# Once the record is published, leave ZENODO_TOKEN unset.
 
 library("jsonlite")
 library("tools")
@@ -15,53 +15,58 @@ zenodo_record <- Sys.getenv("ZENODO_RECORD", "19063511")
 zenodo_token  <- Sys.getenv("ZENODO_TOKEN", "")
 out_dir       <- "files/zenodo"
 
+# Files 01_Data_Import.R needs
+required_files <- c(
+  "Ethnology.csv", "Sociology.csv", "Economics.csv",
+  "Courses_1962-2017.csv", "Enrollments_1962-2017.csv"
+)
+
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
+# Drafts are served under /draft and need the token; published records don't
+api_base <- paste0("https://zenodo.org/api/records/", zenodo_record,
+                   if (zenodo_token != "") "/draft")
 with_token <- function(url) {
-  if (zenodo_token == "") return(url)
-  paste0(url, if (grepl("\\?", url)) "&" else "?", "access_token=", zenodo_token)
+  if (zenodo_token == "") url else paste0(url, "?token=", zenodo_token)
 }
 
-# Published records live under /records; drafts only under /deposit/depositions
-meta <- tryCatch(
-  fromJSON(with_token(paste0("https://zenodo.org/api/records/", zenodo_record)),
-           simplifyVector = FALSE),
-  error = function(e) NULL
+listing <- tryCatch(
+  fromJSON(with_token(paste0(api_base, "/files")), simplifyVector = FALSE),
+  error = function(e) {
+    stop("Could not read the file list of Zenodo record ", zenodo_record, ". ",
+         if (zenodo_token == "") "If the record is still a draft, set ZENODO_TOKEN (see top of script)."
+         else "Check that ZENODO_TOKEN is the current share-link token.",
+         call. = FALSE)
+  }
 )
-if (is.null(meta) && zenodo_token != "") {
-  meta <- fromJSON(with_token(paste0("https://zenodo.org/api/deposit/depositions/", zenodo_record)),
-                   simplifyVector = FALSE)
-}
-if (is.null(meta)) {
-  stop("Zenodo record ", zenodo_record, " is not publicly available. ",
-       "Publish it, or set ZENODO_TOKEN for a draft/restricted record.")
-}
 
-files <- meta$files
-if (length(files) == 0) stop("Zenodo record ", zenodo_record, " lists no files.")
+entries <- listing$entries
+if (length(entries) == 0) stop("Zenodo record ", zenodo_record, " lists no files.")
 
-for (f in files) {
-  # /records and /deposit APIs name these fields differently
-  name <- if (!is.null(f$key)) f$key else f$filename
-  url  <- if (!is.null(f$links$content)) f$links$content else if (!is.null(f$links$self)) f$links$self else f$links$download
+for (f in entries) {
+  dest <- file.path(out_dir, f$key)
   md5  <- sub("^md5:", "", f$checksum)
-  dest <- file.path(out_dir, name)
 
   if (file.exists(dest) && unname(md5sum(dest)) == md5) {
-    message("Up to date: ", dest)
+    message("Up to date: ", f$key)
     next
   }
-  message("Downloading ", name)
-  download.file(with_token(url), dest, mode = "wb", quiet = TRUE)
-  if (unname(md5sum(dest)) != md5) stop("Checksum mismatch for ", dest)
+  message("Downloading ", f$key)
+  download.file(with_token(f$links$content), dest, mode = "wb", quiet = TRUE)
+  if (unname(md5sum(dest)) != md5) stop("Checksum mismatch for ", f$key)
 }
 
-# Record what was downloaded, for the paper's data statement
+missing <- setdiff(required_files, vapply(entries, `[[`, "", "key"))
+if (length(missing) > 0) {
+  stop("Zenodo record is missing files the analysis needs: ", paste(missing, collapse = ", "))
+}
+
+# Record what was downloaded (no token), for the paper's data statement
 writeLines(
   c(paste("record:", zenodo_record),
-    paste("doi:", if (!is.null(meta$doi)) meta$doi else NA),
-    paste("version:", if (!is.null(meta$metadata$version)) meta$metadata$version else NA),
+    paste("concept DOI: 10.5281/zenodo.19063510"),
+    paste("status:", if (zenodo_token == "") "published" else "draft (share link)"),
     paste("downloaded:", format(Sys.time(), "%Y-%m-%d %H:%M %Z")),
-    vapply(files, function(f) paste0("file: ", if (!is.null(f$key)) f$key else f$filename, "  ", f$checksum), "")),
+    vapply(entries, function(f) paste0("file: ", f$key, "  ", f$checksum), "")),
   file.path(out_dir, "zenodo_manifest.txt")
 )

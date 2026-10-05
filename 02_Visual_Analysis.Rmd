@@ -2,22 +2,18 @@
 title: "Visualization"
 ---
 
-Figures for Breznau and Korte, "The waning role of sociology in adult learning?". All inputs are prepared by `01_Data_Import.R` from Korte (2026, Zenodo, doi:10.5281/zenodo.19063510): text-mining rates from the Ethnology, Sociology and Economics sheets, and course and enrollment counts from the "VHS Statistics 1962-2017" sheet.
+Figures for Breznau and Korte, "The waning role of sociology in adult learning?". All inputs are prepared by `01_Data_Import.R` from Korte (2026, Zenodo, doi:10.5281/zenodo.19063510): text-mining rates from `Ethnology.csv`, `Sociology.csv` and `Economics.csv`, and course and enrollment counts from `Courses_1962-2017.csv` and `Enrollments_1962-2017.csv`.
 
 ## Setup
 
 ```{r, message=FALSE, warning=FALSE}
 
-packages <- c("tidyverse",
-              "readxl",
-              "ggplot2",
-              "viridis",
-              "ragg",
-              "knitr",
-              "ggpubr",
-              "zoo")
-
-pacman::p_load(packages, character.only = T)
+library("tidyverse")
+library("viridis")
+library("ragg")
+library("knitr")
+library("ggpubr")
+library("zoo")
 
 # --- Data Import ---
 df_between <- readRDS("files/df_between.RDS") %>%
