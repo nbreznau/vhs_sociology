@@ -40,8 +40,16 @@ listing <- tryCatch(
   }
 )
 
-entries <- listing$entries
+# Zenodo has returned the file list both as $entries and as $files
+entries <- if (!is.null(listing$entries)) listing$entries else listing$files
 if (length(entries) == 0) stop("Zenodo record ", zenodo_record, " lists no files.")
+
+content_url <- function(f) {
+  if (!is.null(f$links$content)) return(f$links$content)
+  url <- f$links$self
+  if (!grepl("/content$", url)) url <- paste0(url, "/content")
+  url
+}
 
 for (f in entries) {
   dest <- file.path(out_dir, f$key)
@@ -52,7 +60,7 @@ for (f in entries) {
     next
   }
   message("Downloading ", f$key)
-  download.file(with_token(f$links$content), dest, mode = "wb", quiet = TRUE)
+  download.file(with_token(content_url(f)), dest, mode = "wb", quiet = TRUE)
   if (unname(md5sum(dest)) != md5) stop("Checksum mismatch for ", f$key)
 }
 
